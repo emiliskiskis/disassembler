@@ -6,15 +6,16 @@
     ofn db 13 dup (0)
     ifh dw ?
     ofh dw ?
-    in_buff db 512 dup (?)
+    in_buff db 1024 dup (?)
     in_buff_end dw ?
     in_buff_length dw ?
     READ_LENGTH dw 1024
-    out_buff db 512 dup (?)
+    out_buff db 1024 dup (?)
     out_buff_i dw 0
     ;Strings
     open_if_error_msg db "Couldn't open input file", 0Dh, 0Ah, 24h
     create_of_error_msg db "Couldn't create output file", 0Dh, 0Ah, 24h
+    read_file_error_msg db "Error reading file", 0Dh, 0Ah, 24h
     help_msg db "Usage: disasm [input file] [output file]", 0Dh, 0Ah, 9, "/?: show this help text", 0Dh, 0Ah, 9, "input file: source executable to be disassembled", 0Dh, 0Ah, 9, "output file: .asm file with disassembled code", 0Dh, 0Ah, 24h
 
 .code
@@ -97,11 +98,14 @@ create_of_error:
     int 21h
 
 main_logic:
-    lea si, in_buff
+    call Read
     lea di, out_buff
 
     main_loop:
         mov dl, byte ptr [si]
+        mov byte ptr [di], dl
+        inc di
+        inc out_buff_i
         ;mov current_symbol, dl
         
         ;Increase input buffer iterator (si) address and check for read and print req's
@@ -139,6 +143,14 @@ proc Read
     mov cx, READ_LENGTH
     lea dx, in_buff
     int 21h
+    jnc read_file_success
+    read_file_error:
+    mov ah, 09h
+    lea dx, read_file_error_msg
+    int 21h
+    ;end
+
+    read_file_success:
 
     lea si, in_buff
     mov in_buff_end, si
