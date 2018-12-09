@@ -184,21 +184,21 @@ main_logic:
         xor al, 11000110b
         cmp al, 2
         jae skip_002
-        call parse_mov_2
+        ;call parse_mov_2
         jmp cont_main_loop
         skip_002:
         mov al, dl
         xor al, 10110000b
         cmp al, 16
         jae skip_003
-        call parse_mov_3
+        ;call parse_mov_3
         jmp cont_main_loop
         skip_003:
         xor al, dl
         xor al, 10100000b
         cmp al, 2
         jae skip_004
-        call parse_mov_4
+        ;call parse_mov_4
         jmp cont_main_loop
         skip_004:
 
@@ -304,7 +304,7 @@ proc read_b_offset_val
     ret
 endp
 
-proc read_b_offset_val
+proc read_w_offset_val
     push dx
     inc si
     mov dl, [si]
@@ -358,33 +358,7 @@ proc parse_mov_1
     call read_w_offset_val
     no_offset:
 
-
-
     ret
 endp parse_mov_1
-
-proc parse_mov_2
-    push dx
-    lea dx, mov_inst
-    call PrintText
-    pop dx
-    ret
-endp parse_mov_2
-
-proc parse_mov_3
-    push dx
-    lea dx, mov_inst
-    call PrintText
-    pop dx
-    ret
-endp parse_mov_3
-
-proc parse_mov_4
-    push dx
-    lea dx, mov_inst
-    call PrintText
-    pop dx
-    ret
-endp parse_mov_4
 
 end start
