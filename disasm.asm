@@ -5,18 +5,33 @@
     ifn db 13 dup (0)
     ofn db 13 dup (0)
     ifh dw ?
-    ofh dw ?
+    ofh dw 1
     in_buff db 1024 dup (?)
     in_buff_end dw ?
     in_buff_length dw ?
     READ_LENGTH dw 1024
     out_buff db 1024 dup (?)
     out_buff_i dw 0
+    ;Disassembler logic
+    d_val db 0
+    w_val db 0
+    reg_val db 0
+    mod_val db 0
+    rm_val db 0
+    sreg_val db 0
+    s_val db 0
+    imm_val db 0
+    offset_val db 0
     ;Strings
-    open_if_error_msg db "Couldn't open input file", 0Dh, 0Ah, 24h
-    create_of_error_msg db "Couldn't create output file", 0Dh, 0Ah, 24h
-    read_file_error_msg db "Error reading file", 0Dh, 0Ah, 24h
+    ;Errors
+    newline db 0Dh, 0Ah, 24h
+    open_if_error_msg db "Couldn't open input file$"
+    create_of_error_msg db "Couldn't create output file$"
+    read_file_error_msg db "Error reading file$"
+    ;Help text
     help_msg db "Usage: disasm [input file] [output file]", 0Dh, 0Ah, 9, "/?: show this help text", 0Dh, 0Ah, 9, "input file: source executable to be disassembled", 0Dh, 0Ah, 9, "output file: .asm file with disassembled code", 0Dh, 0Ah, 24h
+    ;Instruction expressions
+    mov_inst_1 db ""
 
 .code
 start:
@@ -34,7 +49,7 @@ do_help:
     int 21h
 
 read_pars:
-    ;Logic: disasm [/?] [input file] [output file]
+    ;Logic: disasm [/?] [input file] (output file)
     xor ch, ch
     mov cl, [es:80h] ;par length
     cmp cl, 0
@@ -79,9 +94,8 @@ open_if:
     jmp create_of
 
 open_if_error:
-    mov ah, 09h
     lea dx, open_if_error_msg
-    int 21h
+    call PrintText
 
 create_of:
     mov ax, 3C00h
@@ -93,33 +107,61 @@ create_of:
     jmp main_logic
 
 create_of_error:
-    mov ah, 09h
     lea dx, create_of_error_msg
-    int 21h
+    call PrintText
 
 main_logic:
     call Read
     lea di, out_buff
+    xor ax, ax
+    xor bx, bx
+    xor cx, cx
+    xor dx, dx
 
     main_loop:
+        ;MOV instruction
         mov dl, byte ptr [si]
-        mov byte ptr [di], dl
-        inc di
-        inc out_buff_i
-        ;mov current_symbol, dl
-        
+        mov al, dl
+        xor al, 10001000b
+        cmp al, 4
+        jae skip_001
+        call parse_mov_1
+        jmp cont_main_loop
+        skip_001:
+        mov al, dl
+        xor al, 11000110b
+        cmp al, 2
+        jae skip_002
+        call parse_mov_2
+        jmp cont_main_loop
+        skip_002:
+        mov al, dl
+        xor al, 10110000b
+        cmp al, 16
+        jae skip_003
+        call parse_mov_3
+        jmp cont_main_loop
+        skip_003:
+        xor al, dl
+        xor al, 10100000b
+        cmp al, 2
+        jae skip_004
+        call parse_mov_4
+        jmp cont_main_loop
+        skip_004:
+
         ;Increase input buffer iterator (si) address and check for read and print req's
         cont_main_loop:
             inc si
             cmp si, in_buff_end
             jb skip_read
-            cmp in_buff_length, 512
+            cmp in_buff_length, 1024
             jb exit_main_loop
             call Read
             cmp in_buff_length, 0
             je exit_main_loop
             skip_read:
-            cmp out_buff_i, 512
+            cmp out_buff_i, 1024
             jb skip_print
             call Print
             skip_print:
@@ -186,5 +228,78 @@ proc Print
     pop ax
     ret
 endp Print
+
+;Right now to STD until $, will improve to output buffer with checks and everything
+proc PrintText
+    push ax
+
+    mov ah, 09h
+    int 21h
+    lea dx, newline
+    int 21h
+
+    pop ax
+    ret
+endp PrintText
+
+proc parse_mov_1
+    ;w_val
+    mov al, dl
+    and dl, 1b
+    mov w_val, dl
+
+    ;d_val
+    mov al, dl
+    and al, 10b
+    shr al, 1
+    mov d_val, al
+    
+    ;Next byte!
+    inc si
+    mov dl, byte ptr [si]
+
+    ;mod_val
+    mov al, dl
+    and al, 11000000b
+    shr al, 6
+    mov mod_val, al
+
+    ;reg_val
+    mov al, dl
+    and al, 111000b
+    shr al, 3
+    mov reg_val, al
+
+    ;rm_val
+    mov al, dl
+    and al, 111b
+    mov rm_val, al
+
+    ret
+endp parse_mov_1
+
+proc parse_mov_2
+    push dx
+    lea dx, mov_inst
+    call PrintText
+    pop dx
+    ret
+endp parse_mov_2
+
+proc parse_mov_3
+    push dx
+    lea dx, mov_inst
+    call PrintText
+    pop dx
+    ret
+endp parse_mov_3
+
+proc parse_mov_4
+    push dx
+    lea dx, mov_inst
+    call PrintText
+    pop dx
+    ret
+endp parse_mov_4
 
 end start
