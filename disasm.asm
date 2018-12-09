@@ -20,8 +20,10 @@
     rm_val db 0
     sreg_val db 0
     s_val db 0
-    imm_val db 0
-    offset_val db 0
+    b_imm_val db 0
+    w_imm_val dw 0
+    b_offset_val db 0
+    w_offset_val dw 0
     ;Strings
     ;Errors
     newline db 0Dh, 0Ah, 24h
@@ -31,7 +33,57 @@
     ;Help text
     help_msg db "Usage: disasm [input file] [output file]", 0Dh, 0Ah, 9, "/?: show this help text", 0Dh, 0Ah, 9, "input file: source executable to be disassembled", 0Dh, 0Ah, 9, "output file: .asm file with disassembled code", 0Dh, 0Ah, 24h
     ;Instruction expressions
-    mov_inst_1 db ""
+    registers db "alcldlblahchdhbhaxcxdxbxspbpsidi"
+    ;Explanation on registers (each is two bytes):
+    ;   for mod=11 or reg=000->111:
+    ;   w=0: registers[0:16]
+    ;   w=1: registers[17:32]
+    ;   Sequence is AL CL DL BL AH CH DH BH
+    ;               AX CX DX BX SP BP SI DI
+    ;Two-letter commands
+    com_2_main db "in"
+    com_2_lgic db "or"
+    com_2_jmps db "jajbjejgjljpjojs"
+    ;Three-letter commands
+    com_3_main db "movpopoutlealdsles"
+    com_3_arit db "addadcincsubsbbdeccmpmuldivneg"
+    com_3_deci db "aaadaaaasdasaamaad"
+    com_3_conv db "cbwcwd"
+    com_3_lgic db "notshlshrsarrolrorrclrcrandxor"
+    com_3_strs db "rep"
+    com_3_call db "ret"
+    com_3_jmps db "jmpjaejbejgejlejnejnojnpjns"
+    com_3_intr db "int"
+    com_3_sync db "clcstccmccldstdclistihltesc"
+    ;Four-letter commands
+    com_4_main db "pushxchgxlatlahfsahfpopf"
+    com_4_arit db "imulidiv"
+    com_4_lgic db "test"
+    com_4_strs db "movscmpsscaslodsstos"
+    com_4_call db "call"
+    com_4_jmps db "jcxz"
+    com_4_cycl db "loop"
+    com_4_intr db "iret"
+    com_4_sync db "waitlock"
+    ;Five-letter commands
+    com_5_main db "pushf"
+    com_5_strs db "repne"
+    com_5_cycl db "loope"
+    ;Six-letter commands
+    com_6_cycl db "loopne"
+
+in or ja jb je jg jl jp jo js
+mov pop out lea lds les add adc inc sub sbb dec cmp mul div neg
+    aaa daa aas das aam aad cbw cwd not shl shr sar rol ror rcl
+    rcr and xor rep ret jmp jae jbe jge jle jne jno jnp jns int
+    clc stc cmc cld std cli sti hlt esc
+
+push xchg xlat lahf sahf popf imul idiv test movs cmps scas lods
+    stos call jcxz loop iret wait lock
+
+pushf repne loope
+
+loopne
 
 .code
 start:
@@ -234,6 +286,7 @@ proc PrintText
     push ax
 
     mov ah, 09h
+    ;dx required before call
     int 21h
     lea dx, newline
     int 21h
@@ -241,6 +294,26 @@ proc PrintText
     pop ax
     ret
 endp PrintText
+
+proc read_b_offset_val
+    push dx
+    inc si
+    mov dl, [si]
+    mov b_offset_val, dl
+    pop dx
+    ret
+endp
+
+proc read_b_offset_val
+    push dx
+    inc si
+    mov dl, [si]
+    inc si
+    mov dh, [si]
+    mov w_offset_val, dx
+    pop dx
+    ret
+endp
 
 proc parse_mov_1
     ;w_val
@@ -274,6 +347,18 @@ proc parse_mov_1
     mov al, dl
     and al, 111b
     mov rm_val, al
+
+    cmp mod_val, 01b
+    jne mov_1_mod_cont
+    call read_b_offset_val
+    jmp no_offset
+    mov_1_mod_cont:
+    cmp mod_Val, 10b
+    jne no_offset
+    call read_w_offset_val
+    no_offset:
+
+
 
     ret
 endp parse_mov_1
