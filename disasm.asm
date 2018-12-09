@@ -167,27 +167,27 @@ main_logic:
         call parse_mov_1
         jmp cont_main_loop
         skip_001:
-        mov al, dl
-        xor al, 11000110b
-        cmp al, 2
-        jae skip_002
-        ;call parse_mov_2
+        ;mov al, dl
+        ;xor al, 11000110b
+        ;cmp al, 2
+        ;jae skip_002
+        ;;call parse_mov_2
         jmp cont_main_loop
-        skip_002:
-        mov al, dl
-        xor al, 10110000b
-        cmp al, 16
-        jae skip_003
+        ;skip_002:
+        ;mov al, dl
+        ;xor al, 10110000b
+        ;cmp al, 16
+        ;jae skip_003
         ;call parse_mov_3
-        jmp cont_main_loop
-        skip_003:
-        xor al, dl
-        xor al, 10100000b
-        cmp al, 2
-        jae skip_004
+        ;jmp cont_main_loop
+        ;skip_003:
+        ;xor al, dl
+        ;xor al, 10100000b
+        ;cmp al, 2
+        ;jae skip_004
         ;call parse_mov_4
-        jmp cont_main_loop
-        skip_004:
+        ;jmp cont_main_loop
+        ;skip_004:
 
         ;Increase input buffer iterator (si) address and check for read and print req's
         cont_main_loop:
