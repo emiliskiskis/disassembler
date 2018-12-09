@@ -10,7 +10,6 @@ start:
     xor ax, ax
 
     
-    
 
     mov ax, 4C00h
     int 21h
