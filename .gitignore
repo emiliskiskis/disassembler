@@ -1,2 +1,4 @@
-debug.bat
-comp.bat
+*
+!
+!.gitignore
+!disasm.asm
