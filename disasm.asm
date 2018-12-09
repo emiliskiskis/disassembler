@@ -16,6 +16,12 @@ start:
     mov ds, ax
     xor ax, ax
 
+read_pars:
+    ;Logic: disasm [/?] [input file] [output file]
+    xor ch, ch
+    mov cl, [es:80h] ;par length
+    cmp cl, 0
+
 open_if:
     mov ax, 3D00h
     lea dx, ifn
