@@ -72,19 +72,6 @@
     ;Six-letter commands
     com_6_cycl db "loopne"
 
-;in or ja jb je jg jl jp jo js
-;mov pop out lea lds les add adc inc sub sbb dec cmp mul div neg
-;    aaa daa aas das aam aad cbw cwd not shl shr sar rol ror rcl
-;    rcr and xor rep ret jmp jae jbe jge jle jne jno jnp jns int
-;    clc stc cmc cld std cli sti hlt esc
-
-;push xchg xlat lahf sahf popf imul idiv test movs cmps scas lods
-;    stos call jcxz loop iret wait lock
-
-;pushf repne loope
-
-;loopne
-
 .code
 start:
     mov ax, @data
