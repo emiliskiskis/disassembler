@@ -351,7 +351,13 @@ proc parse_dwmodregrm
 endp parse_dwmodregrm
 
 proc parse_mov_1
-    
+    call parse_dwmodregrm
+    ret
 endp parse_mov_1
+
+proc parse_mov_2
+    call parse_dwmodregrm
+    ret
+endp parse_mov_2
 
 end start
