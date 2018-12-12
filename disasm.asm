@@ -163,31 +163,32 @@ main_logic:
         mov al, dl
         xor al, 10001000b
         cmp al, 4
-        jae skip_001
+        jae skip_mov_1
         call parse_mov_1
         jmp cont_main_loop
-        skip_001:
-        ;mov al, dl
-        ;xor al, 11000110b
-        ;cmp al, 2
-        ;jae skip_002
-        ;;call parse_mov_2
-        jmp cont_main_loop
-        ;skip_002:
-        ;mov al, dl
-        ;xor al, 10110000b
-        ;cmp al, 16
-        ;jae skip_003
-        ;call parse_mov_3
-        ;jmp cont_main_loop
-        ;skip_003:
-        ;xor al, dl
-        ;xor al, 10100000b
-        ;cmp al, 2
-        ;jae skip_004
-        ;call parse_mov_4
-        ;jmp cont_main_loop
-        ;skip_004:
+        skip_mov_1:
+		mov al, dl
+		xor al, 11000110b
+		cmp al, 2
+		jae skip_mov_2
+		call parse_mov_2
+		jmp cont_main_loop
+		skip_mov_2:
+		mov al, dl
+		xor al, 10110000b
+		cmp al, 2
+		jae skip_mov_3
+		call parse_mov_3
+		jmp cont_main_loop
+		skip_mov_3:
+		;parse_mov_45 has d flag inverted
+		mov al, dl
+		xor al, 10100000b
+		cmp al, 4
+		jae skip_mov_45
+		call parse_mov_45
+		jmp cont_main_loop
+		skip_mov_45:
 
         ;Increase input buffer iterator (si) address and check for read and print req's
         cont_main_loop:
@@ -302,7 +303,8 @@ proc read_w_offset_val
     ret
 endp
 
-proc parse_mov_1
+;Parse 111111dw mod reg r/m [b/w offset]
+proc parse_dwmodregrm
     ;w_val
     mov al, dl
     and dl, 1b
@@ -336,16 +338,20 @@ proc parse_mov_1
     mov rm_val, al
 
     cmp mod_val, 01b
-    jne mov_1_mod_cont
+    jne dwmodregrm_mod_cont
     call read_b_offset_val
     jmp no_offset
-    mov_1_mod_cont:
-    cmp mod_Val, 10b
+    dwmodregrm_mod_cont:
+    cmp mod_val, 10b
     jne no_offset
     call read_w_offset_val
     no_offset:
-
+	
     ret
+endp parse_dwmodregrm
+
+proc parse_mov_1
+    
 endp parse_mov_1
 
 end start
