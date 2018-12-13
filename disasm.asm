@@ -109,7 +109,7 @@ read_pars:
         loop read_ifn_loop
     end_read_ifn:
     cmp cl, 0
-    je open_if
+    je skip_read_ofn
     inc si
     read_ofn:
         lea di, ofn
@@ -123,6 +123,11 @@ read_pars:
             inc si
             inc di
         loop read_ofn_loop
+    skip_read_ofn:
+
+    mov ax, ds
+    mov es, ax
+    xor ax, ax
 
 open_if:
     mov ax, 3D00h
@@ -359,5 +364,13 @@ proc parse_mov_2
     call parse_dwmodregrm
     ret
 endp parse_mov_2
+
+proc parse_mov_3
+    ret
+endp parse_mov_3
+
+proc parse_mov_45
+    ret
+endp parse_mov_45
 
 end start
