@@ -514,6 +514,7 @@ proc parse_rm
     pop cx
     end_push:
     add out_buff_i, 9
+    pop ax
 
     mov bx, 2
     call PushSpecialSymbol
