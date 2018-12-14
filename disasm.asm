@@ -33,6 +33,7 @@
     ;Help text
     help_msg db "Usage: disasm [input file] [output file]", 0Dh, 0Ah, 9, "/?: show this help text", 0Dh, 0Ah, 9, "input file: source executable to be disassembled", 0Dh, 0Ah, 9, "output file: .asm file with disassembled code", 0Dh, 0Ah, 24h
     ;Instruction expressions
+    special_symbols db " ,[]:+"
     registers db "alcldlblahchdhbhaxcxdxbxspbpsidi"
     ;Explanation on registers (each is two bytes):
     ;   for mod=11 or reg=000->111:
@@ -40,6 +41,10 @@
     ;   w=1: registers[17:32]
     ;   Sequence is AL CL DL BL AH CH DH BH
     ;               AX CX DX BX SP BP SI DI
+    rm_registers db "sidibpbx"
+    segments db "escsssds"
+    is_byte db "byte ptr "
+    is_word db "word ptr "
     ;Two-letter commands
     com_2_main db "in"
     com_2_lgic db "or"
@@ -274,6 +279,95 @@ proc Print
     ret
 endp Print
 
+;Push cx characters from ds:si to output buffer (es:di)
+proc PushToBuffer
+    push ax
+    mov ax, out_buff_i
+    add ax, cx
+    cmp ax, 1024
+    jbe skip_pushtobuffer_print
+    call Print
+    skip_pushtobuffer_print:
+    add out_buff_i, cx
+    rep movsb
+
+    pop ax
+    ret
+endp PushToBuffer
+
+;Push special symbol from db special_symbols, bx is index
+proc PushSpecialSymbol
+    push si
+    mov cx, 1
+    lea si, special_symbols+bx
+    call PushToBuffer
+    pop si
+    ret
+endp PushSpecialSymbol
+
+;Push register name from db registers, bx is word index
+proc PushRegister
+    push cx
+    push si
+    add bx, bx ;Double the bx value to convert to 2 byte index
+    mov cx, 2
+    lea si, registers+bx
+    call PushToBuffer
+    pop si
+    pop cx
+    ret
+endp PushRegister
+
+proc PushHexValue
+    ;dx is word value to be pushed
+    push ax
+    mov ax, out_buff_i
+    add ax, 5
+    cmp ax, 1024
+    jbe skip_pushhexvalue_print
+    call Print
+    skip_pushhexvalue_print:
+
+    cmp dh, 0
+    je pushhexvalue_byte
+    mov al, dh
+    and al, 0F0h
+    shr al, 4
+    add al, 30h
+    mov byte ptr [di], al
+    inc di
+    
+    mov al, dh
+    and al, 0Fh
+    add al, 30h
+    mov byte ptr [di], al
+    inc di
+
+    add out_buff_i, 2
+
+    pushhexvalue_byte:
+    mov al, dl
+    and al, 0F0h
+    shr al, 4
+    add al, 30h
+    mov byte ptr [di], al
+    inc di
+
+    mov al, dl
+    and al, 0Fh
+    add al, 30h
+    mov byte ptr [di], al
+    inc di
+    
+    mov byte ptr [di], "h"
+    inc di
+
+    add out_buff_i, 3
+
+    pop ax
+    ret
+endp PushHexValue
+
 ;Right now to STD until $, will improve to output buffer with checks and everything
 proc PrintText
     push ax
@@ -312,8 +406,8 @@ endp
 proc parse_dwmodregrm
     ;w_val
     mov al, dl
-    and dl, 1b
-    mov w_val, dl
+    and al, 1b
+    mov w_val, al
 
     ;d_val
     mov al, dl
@@ -345,18 +439,141 @@ proc parse_dwmodregrm
     cmp mod_val, 01b
     jne dwmodregrm_mod_cont
     call read_b_offset_val
-    jmp no_offset
+    ret
     dwmodregrm_mod_cont:
     cmp mod_val, 10b
     jne no_offset
     call read_w_offset_val
     no_offset:
-	
     ret
 endp parse_dwmodregrm
 
+proc parse_rm
+    push bx
+    push dx
+    xor bx, bx
+
+    cmp rm_val, 100b
+    jb parse_rm_two_regs
+    ;parse_rm_one_reg:
+    cmp mod_val, 11b
+    jb rm_or_mem
+    mov bl, rm_val
+    call PushRegister
+    pop dx
+    pop bx
+    ret
+    ;or stands for one register
+    rm_or_mem:
+    cmp mod_val, 0
+    ja rm_or_offset
+    ;rm_or_no_offset: NOT DONE
+    pop dx
+    pop bx
+    ret
+    rm_or_offset:
+
+    ;This should be a procedure
+    push ax
+    mov ax, out_buff_i
+    add ax, 9
+    cmp ax, 1024
+    jbe skip_rm_or_offset_print
+    call Print
+    skip_rm_or_offset_print:
+    cmp w_val, 1
+    je push_is_word
+    push cx
+    push si
+    mov cx, 9
+    lea si, is_byte
+    rep movsb
+    pop si
+    pop cx
+    jmp end_push
+    push_is_word:
+    push cx
+    push si
+    mov cx, 9
+    lea si, is_word
+    rep movsb
+    pop si
+    pop cx
+    end_push:
+    add out_buff_i, 9
+
+    mov bx, 2
+    call PushSpecialSymbol
+    mov bl, rm_val
+    sub bx, 100b ;Convert to 0XXb value
+    add bx, 10h
+    call PushRegister
+    mov bx, 5
+    call PushSpecialSymbol
+    cmp mod_val, 10b
+    je rm_or_woffset
+    ;rm_or_boffset:
+    xor dh, dh
+    mov dl, b_offset_val
+    call PushHexValue
+    mov bx, 3
+    call PushSpecialSymbol
+    pop dx
+    pop bx
+    ret
+    rm_or_woffset:
+    mov dx, w_offset_val
+    call PushHexValue
+    pop dx
+    pop bx
+    ret
+    parse_rm_two_regs:
+
+    pop dx
+    pop bx
+    ret
+endp parse_rm
+
+proc parse_mov
+    push bx
+    push cx
+    push si
+    mov cx, 3
+    lea si, com_3_main
+    call PushToBuffer
+    mov bx, 0
+    call PushSpecialSymbol
+    pop si
+    pop cx
+    pop bx
+    ret
+endp parse_mov
+
 proc parse_mov_1
+    push bx
+    xor bx, bx
+
     call parse_dwmodregrm
+    call parse_mov
+    cmp d_val, 1
+    je parse_mov_1_d1
+    ;parse_mov_1_d0:
+
+    jmp end_parse_mov_1_d
+    parse_mov_1_d1:
+    mov bl, reg_val
+    call PushRegister
+    mov bx, 1
+    call PushSpecialSymbol
+    mov bx, 0
+    call PushSpecialSymbol
+    ;Format becomes mov_XX,_ (_ is space)
+    call parse_rm
+    pop bx
+    ret
+    end_parse_mov_1_d:
+
+    pop bx
     ret
 endp parse_mov_1
 
