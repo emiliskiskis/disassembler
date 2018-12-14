@@ -368,6 +368,21 @@ proc PushHexValue
     ret
 endp PushHexValue
 
+proc PushNewline
+    cmp out_buff_i, 1022
+    jbe skip_pushnewline_print
+    call Print
+    skip_pushnewline_print:
+
+    mov byte ptr [di], 13
+    inc di
+    mov byte ptr [di], 10
+    inc di
+
+    add out_buff_i, 2
+    ret
+endp PushNewline
+
 ;Right now to STD until $, will improve to output buffer with checks and everything
 proc PrintText
     push ax
@@ -453,8 +468,6 @@ proc parse_rm
     push dx
     xor bx, bx
 
-    cmp rm_val, 100b
-    jb parse_rm_two_regs
     ;parse_rm_one_reg:
     cmp mod_val, 11b
     jb rm_or_mem
@@ -501,6 +514,7 @@ proc parse_rm
     pop cx
     end_push:
     add out_buff_i, 9
+    pop ax
 
     mov bx, 2
     call PushSpecialSymbol
@@ -524,11 +538,6 @@ proc parse_rm
     rm_or_woffset:
     mov dx, w_offset_val
     call PushHexValue
-    pop dx
-    pop bx
-    ret
-    parse_rm_two_regs:
-
     pop dx
     pop bx
     ret
@@ -570,6 +579,7 @@ proc parse_mov_1
     ;Format becomes mov_XX,_ (_ is space)
     call parse_rm
     pop bx
+    call PushNewline
     ret
     end_parse_mov_1_d:
 
