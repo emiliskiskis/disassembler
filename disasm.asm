@@ -10,8 +10,9 @@
     PRINT_LENGTH dw 1024
     in_buff db 1024 dup (?)
     ip_val dw 0
-    in_buff_end dw ?
-    in_buff_length dw ?
+    in_buff_end dw 0
+    in_buff_length dw 1024
+    eof db 0
     out_buff db 1024 dup (?)
     out_buff_i dw 0
 	instr_buff db 50 dup (?)
@@ -38,6 +39,7 @@
     close_if_error_msg db "Couldn't close input file$"
     close_of_error_msg db "Couldn't close output file$"
     read_file_error_msg db "Error reading file$"
+    end_msg db "end"
     ;Help text
     help_msg db "Usage: disasm [input file] [output file]", 0Dh, 0Ah, 9, "/?: show this help text", 0Dh, 0Ah, 9, "input file: source executable to be disassembled", 0Dh, 0Ah, 9, "output file: .asm file with disassembled code", 0Dh, 0Ah, 24h
     ;Instruction expressions
@@ -175,7 +177,7 @@ create_of_error:
     call PrintText
 
 main_logic:
-    call Read
+    lea si, in_buff
 	lea di, instr_buff
 	mov instr_pointer, di
     lea di, out_buff
@@ -185,11 +187,24 @@ main_logic:
     xor dx, dx
 
     main_loop:
+        cmp ofh, 1
+        jne skip_puship
+        call PushIp
+        skip_puship:
+        call IncSi
+        cmp eof, 1
+        je exit_main_loop
         xor dh, dh
         mov dl, byte ptr [si]
         call CheckInstruction
-		mov bx, 0
-		call PushSpecialSymbol
+        cmp ofh, 1
+        jne skip_pushspace
+		mov cx, 1
+        call CheckOutBuff
+		mov byte ptr [di], " "
+        inc di
+        inc out_buff_i
+        skip_pushspace:
 		push si
 		mov cl, instr_length
 		lea si, instr_buff
@@ -202,22 +217,15 @@ main_logic:
 
         ;Increase input buffer iterator (si) address and check for read and print req's
         cont_main_loop:
-            inc si
-			inc ip_val
-            cmp si, in_buff_end
-            jbe skip_read
-            cmp in_buff_length, 1024
-            jb exit_main_loop
-            call Read
-            cmp in_buff_length, 0
-            je exit_main_loop
-            skip_read:
-            cmp out_buff_i, 1024
-            jb skip_print
-            call Print
-            skip_print:
+        cmp out_buff_i, 1024
+        jb main_loop
+        call Print
     jmp main_loop
     exit_main_loop:
+    mov cx, 3
+    call CheckOutBuff
+    lea si, end_msg
+    rep movsb
     ;Flush buffers after exit
     call Print
 
@@ -420,21 +428,32 @@ endp Print
 
 proc IncSi
 	push dx
+	
+    cmp si, in_buff_end
+    jb checkinbuff_skip_read
+    cmp in_buff_length, 1024
+    je inc_si_read
+    mov eof, 1
+    pop dx
+    ret
+    inc_si_read:
+    call Read
+    jmp inc_si_end
+    checkinbuff_skip_read:
+    inc si
+    inc_si_end:
+	inc ip_val
+
+    cmp ofh, 1
+    jne skip_incsi_push
 	xor dh, dh
 	mov skip_h, 1
 	mov dl, byte ptr [si]
 	call PushOutHexValue
 	mov skip_h, 0
+    skip_incsi_push:
 	pop dx
-	
-    cmp si, in_buff_end
-    jb checkinbuff_skip_read
-    call Read
-	inc ip_val
-    ret
-    checkinbuff_skip_read:
-    inc si
-	inc ip_val
+
     ret
 endp IncSi
 
@@ -594,10 +613,10 @@ proc PushHexValue
     inc instr_length
     pushhexvalue_skip_h:
 
-    pop si
-    pop ax
 	mov instr_pointer, di
 	pop di
+    pop si
+    pop ax
     ret
 endp PushHexValue
 
@@ -818,18 +837,21 @@ proc PushIp
     call PushOutHexValue
     pop dx
     mov force_hex, 0
-    mov bx, 4
-    call PushSpecialSymbol
-    mov bx, 0
-    call PushSpecialSymbol
     
+    mov cx, 2
+    call CheckOutBuff
+    mov byte ptr [di], ":"
+    inc di
+    mov byte ptr [di], " "
+    inc di
+    add out_buff_i, 2
+
     ret
 endp PushIp
 
 proc parse_mov
     push si
 
-    call PushIp
     mov cx, 3
     lea si, com_3_main
     call PushToBuffer
@@ -979,7 +1001,6 @@ endp parse_mov_6
 
 proc parse_out
     push si
-    call PushIp
     mov cx, 3
     lea si, com_3_main+6
     call PushToBuffer
@@ -1040,7 +1061,6 @@ proc parse_out_2
 endp parse_out_2
 
 proc parse_not
-    call PushIp
     call parse_dwmodregrm
     
     push si
@@ -1057,7 +1077,6 @@ proc parse_not
 endp parse_not
 
 proc parse_rcr
-    call PushIp
     call parse_dwmodregrm
     
     push si
@@ -1076,11 +1095,13 @@ proc parse_rcr
     cmp d_val, 1
     je parse_rcr_v1
     ;parse_rcr_v0:
-    mov cx, 1
-    call CheckOutBuff
+    push di
+    mov di, instr_pointer
     mov byte ptr [di], "1"
     inc di
-    inc out_buff_i
+    inc instr_length
+    mov instr_pointer, di
+    pop di
     ret
     parse_rcr_v1:
     mov w_val, 0
@@ -1091,8 +1112,6 @@ proc parse_rcr
 endp parse_rcr
 
 proc parse_xlat
-    call PushIp
-
     push si
     mov cx, 4
     lea si, com_4_main+8
