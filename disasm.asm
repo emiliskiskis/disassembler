@@ -4,36 +4,47 @@
 .data
     ifn db 13 dup (0)
     ofn db 13 dup (0)
-    ifh dw ?
+    ifh dw 0
     ofh dw 1
-    in_buff db 1024 dup (?)
-    in_buff_end dw ?
-    in_buff_length dw ?
     READ_LENGTH dw 1024
+    PRINT_LENGTH dw 1024
+    in_buff db 1024 dup (?)
+    ip_val dw 0
+    in_buff_end dw 0
+    in_buff_length dw 1024
+    eof db 0
     out_buff db 1024 dup (?)
     out_buff_i dw 0
+	instr_buff db 50 dup (?)
+	instr_length db 0
+	instr_pointer dw ?
     ;Disassembler logic
     d_val db 0
     w_val db 0
     reg_val db 0
     mod_val db 0
     rm_val db 0
+    port_val db 0
     sreg_val db 0
     s_val db 0
-    b_imm_val db 0
-    w_imm_val dw 0
-    b_offset_val db 0
-    w_offset_val dw 0
+    imm_val dw 0
+    offset_val dw 0
+    force_hex db 0
+	skip_h db 0
     ;Strings
     ;Errors
     newline db 0Dh, 0Ah, 24h
     open_if_error_msg db "Couldn't open input file$"
     create_of_error_msg db "Couldn't create output file$"
+    close_if_error_msg db "Couldn't close input file$"
+    close_of_error_msg db "Couldn't close output file$"
     read_file_error_msg db "Error reading file$"
+    end_msg db "end"
     ;Help text
     help_msg db "Usage: disasm [input file] [output file]", 0Dh, 0Ah, 9, "/?: show this help text", 0Dh, 0Ah, 9, "input file: source executable to be disassembled", 0Dh, 0Ah, 9, "output file: .asm file with disassembled code", 0Dh, 0Ah, 24h
     ;Instruction expressions
-    special_symbols db " ,[]:+"
+    special_symbols db " ,[]:+?"
+    hex_abc db "0123456789ABCDEF"
     registers db "alcldlblahchdhbhaxcxdxbxspbpsidi"
     ;Explanation on registers (each is two bytes):
     ;   for mod=11 or reg=000->111:
@@ -41,8 +52,10 @@
     ;   w=1: registers[17:32]
     ;   Sequence is AL CL DL BL AH CH DH BH
     ;               AX CX DX BX SP BP SI DI
-    rm_registers db "sidibpbx"
+    rm_0_registers db "bx+sibx+dibp+sibp+di"
+    rm_4_registers db "sidibpbx"
     segments db "escsssds"
+    is_prefix db 0
     is_byte db "byte ptr "
     is_word db "word ptr "
     ;Two-letter commands
@@ -76,6 +89,8 @@
     com_5_cycl db "loope"
     ;Six-letter commands
     com_6_cycl db "loopne"
+    canidoit db "Is this possible?$"
+    loool db "There was a prefix"
 
 .code
 start:
@@ -121,9 +136,9 @@ read_pars:
         read_ofn_loop:
             mov dl, byte ptr [es:si]
             cmp dl, 0
-            je open_if
+            je skip_read_ofn
             cmp dl, 0Dh
-            je open_if
+            je skip_read_ofn
             mov [di], dl
             inc si
             inc di
@@ -145,6 +160,8 @@ open_if:
 open_if_error:
     lea dx, open_if_error_msg
     call PrintText
+    mov ax, 4C00h
+    int 21h
 
 create_of:
     mov ax, 3C00h
@@ -160,7 +177,9 @@ create_of_error:
     call PrintText
 
 main_logic:
-    call Read
+    lea si, in_buff
+	lea di, instr_buff
+	mov instr_pointer, di
     lea di, out_buff
     xor ax, ax
     xor bx, bx
@@ -168,61 +187,190 @@ main_logic:
     xor dx, dx
 
     main_loop:
-        ;MOV instruction
+        cmp ofh, 1
+        jne skip_puship
+        call PushIp
+        skip_puship:
+        call IncSi
+        cmp eof, 1
+        je exit_main_loop
+        xor dh, dh
         mov dl, byte ptr [si]
-        mov al, dl
-        xor al, 10001000b
-        cmp al, 4
-        jae skip_mov_1
-        call parse_mov_1
-        jmp cont_main_loop
-        skip_mov_1:
-		mov al, dl
-		xor al, 11000110b
-		cmp al, 2
-		jae skip_mov_2
-		call parse_mov_2
-		jmp cont_main_loop
-		skip_mov_2:
-		mov al, dl
-		xor al, 10110000b
-		cmp al, 2
-		jae skip_mov_3
-		call parse_mov_3
-		jmp cont_main_loop
-		skip_mov_3:
-		;parse_mov_45 has d flag inverted
-		mov al, dl
-		xor al, 10100000b
-		cmp al, 4
-		jae skip_mov_45
-		call parse_mov_45
-		jmp cont_main_loop
-		skip_mov_45:
+        call CheckInstruction
+        cmp ofh, 1
+        jne skip_pushspace
+		mov cx, 1
+        call CheckOutBuff
+		mov byte ptr [di], " "
+        inc di
+        inc out_buff_i
+        skip_pushspace:
+		push si
+		mov cl, instr_length
+		lea si, instr_buff
+		call PushToOutBuff
+		mov instr_length, 0
+		lea si, instr_buff
+		mov instr_pointer, si
+		pop si
+		call PushNewline
 
         ;Increase input buffer iterator (si) address and check for read and print req's
         cont_main_loop:
-            inc si
-            cmp si, in_buff_end
-            jb skip_read
-            cmp in_buff_length, 1024
-            jb exit_main_loop
-            call Read
-            cmp in_buff_length, 0
-            je exit_main_loop
-            skip_read:
-            cmp out_buff_i, 1024
-            jb skip_print
-            call Print
-            skip_print:
+        cmp out_buff_i, 1024
+        jb main_loop
+        call Print
     jmp main_loop
     exit_main_loop:
+    mov cx, 3
+    lea si, end_msg
+    call PushToOutBuff
     ;Flush buffers after exit
     call Print
+
+close_if:
+    cmp ifh, 0
+    je close_of
+    mov ah, 3Eh
+    mov bx, ifh
+    int 21h
+    jc close_if_error
+    jmp close_of
+
+close_if_error:
+    lea dx, close_if_error_msg
+    call PrintText
+
+close_of:
+    cmp ofh, 1
+    je clean_exit
+    mov ah, 3Eh
+    mov bx, ofh
+    int 21h
+    jc close_of_error
+    jmp clean_exit
+
+close_of_error:
+    lea dx, close_of_error_msg
+    int 21h
 
 clean_exit:
     mov ax, 4C00h
     int 21h
+
+proc CheckInstruction
+    ;Segment check
+    cmp dl, 26h
+    jne skip_es
+    mov is_prefix, 0
+    jmp was_segment
+    skip_es:
+    cmp dl, 2Eh
+    jne skip_cs
+    mov is_prefix, 1
+    jmp was_segment
+    skip_cs:
+    cmp dl, 36h
+    jne skip_ss
+    mov is_prefix, 2
+    jmp was_segment
+    skip_ss:
+    cmp dl, 3Eh
+    jne skip_ds
+    mov is_prefix, 3
+    jmp was_segment
+    skip_ds:
+    mov is_prefix, 4
+    jmp was_not_segment
+    was_segment:
+	call IncSi
+    mov dl, byte ptr [si]
+    was_not_segment:
+    ;MOV instruction
+    ;call PushHexValue
+    ;mov bx, 4
+    ;call PushSpecialSymbol
+    ;call PushNewline
+    mov al, dl
+    xor al, 10001000b
+    cmp al, 4
+    jae skip_mov_1
+    call parse_mov_1
+    ret
+    skip_mov_1:
+    mov al, dl
+    xor al, 11000110b
+    cmp al, 2
+    jae skip_mov_2
+    call parse_mov_2
+    ret
+    skip_mov_2:
+    mov al, dl
+    xor al, 10110000b
+    cmp al, 16
+    jae skip_mov_3
+    call parse_mov_3
+    ret
+    skip_mov_3:
+    ;parse_mov_45 has d flag inverted
+    mov al, dl
+    xor al, 10100000b
+    cmp al, 4
+    jae skip_mov_45
+    call parse_mov_45
+    ret
+    skip_mov_45:
+    mov al, dl
+    xor al, 10001100b
+    shr al, 1
+    cmp al, 2
+    jae skip_mov_6
+    call parse_mov_6
+    ret
+    skip_mov_6:
+    ;OUT instruction
+    mov al, dl
+    xor al, 11100110b
+    cmp al, 2
+    jae skip_out_1
+    call parse_out_1
+    ret
+    skip_out_1:
+    mov al, dl
+    xor al, 11101110b
+    cmp al, 2
+    jae skip_out_2
+    call parse_out_2
+    ret
+    skip_out_2:
+    ;NOT instruction
+    mov al, dl
+    xor al, 11110110b
+    cmp al, 2
+    jae skip_not
+    call parse_not
+    ret
+    skip_not:
+    ;RCR instruction
+    mov al, dl
+    xor al, 11010000b
+    cmp al, 4
+    jae skip_rcr
+    call parse_rcr
+    ret
+    skip_rcr:
+    mov al, dl
+    xor al, 11010111b
+    cmp al, 1
+    jae skip_xlat
+    call parse_xlat
+    ret
+    skip_xlat:
+    ;No recognized instruction
+    mov bx, 6
+    call PushSpecialSymbol
+    ret
+endp CheckInstruction
 
 proc Read
     push ax
@@ -243,7 +391,7 @@ proc Read
     ;end
 
     read_file_success:
-
+	
     lea si, in_buff
     mov in_buff_end, si
     add in_buff_end, ax
@@ -279,20 +427,69 @@ proc Print
     ret
 endp Print
 
-;Push cx characters from ds:si to output buffer (es:di)
-proc PushToBuffer
+proc IncSi
+	push dx
+	
+    cmp si, in_buff_end
+    jb checkinbuff_skip_read
+    cmp in_buff_length, 1024
+    je inc_si_read
+    mov eof, 1
+    pop dx
+    ret
+    inc_si_read:
+    call Read
+    jmp inc_si_end
+    checkinbuff_skip_read:
+    inc si
+    inc_si_end:
+	inc ip_val
+
+    cmp ofh, 1
+    jne skip_incsi_push
+	xor dh, dh
+	mov skip_h, 1
+	mov dl, byte ptr [si]
+	call PushOutHexValue
+	mov skip_h, 0
+    skip_incsi_push:
+	pop dx
+
+    ret
+endp IncSi
+
+proc CheckOutBuff
     push ax
+
     mov ax, out_buff_i
     add ax, cx
-    cmp ax, 1024
-    jbe skip_pushtobuffer_print
+    cmp ax, PRINT_LENGTH
+    jbe checkoutbuff_skip_print
     call Print
-    skip_pushtobuffer_print:
-    add out_buff_i, cx
-    rep movsb
+    checkoutbuff_skip_print:
 
     pop ax
     ret
+endp CheckOutBuff
+
+;Push cx characters from ds:si to output buffer (es:di)
+proc PushToOutBuff
+    call CheckOutBuff
+    add out_buff_i, cx
+    rep movsb
+
+    ret
+endp PushToOutBuff
+
+proc PushToBuffer
+	push di
+	add instr_length, cl
+	mov di, instr_pointer
+	rep movsb
+	
+	mov instr_pointer, di
+	pop di
+	ret
 endp PushToBuffer
 
 ;Push special symbol from db special_symbols, bx is index
@@ -305,70 +502,139 @@ proc PushSpecialSymbol
     ret
 endp PushSpecialSymbol
 
-;Push register name from db registers, bx is word index
-proc PushRegister
-    push cx
+proc PushOutHexValue
+    ;dx is word value to be pushed
+    push ax
+    xor ah, ah
     push si
-    add bx, bx ;Double the bx value to convert to 2 byte index
-    mov cx, 2
-    lea si, registers+bx
-    call PushToBuffer
+
+	mov cx, 5
+	call CheckOutBuff
+	
+    cmp force_hex, 1
+    je pushouthexvalue_force
+    cmp dh, 0
+    je pushouthexvalue_byte
+    pushouthexvalue_force:
+    mov al, dh
+    and al, 0F0h
+    shr al, 4
+    lea si, hex_abc
+    add si, ax
+    movsb
+    
+    mov al, dh
+    and al, 0Fh
+    lea si, hex_abc
+    add si, ax
+    movsb
+
+    add out_buff_i, 2
+
+    pushouthexvalue_byte:
+    mov al, dl
+    and al, 0F0h
+    shr al, 4
+    lea si, hex_abc
+    add si, ax
+    movsb
+
+    mov al, dl
+    and al, 0Fh
+    lea si, hex_abc
+    add si, ax
+    movsb
+
+    add out_buff_i, 2
+
+    cmp force_hex, 1
+    je pushouthexvalue_skip_h
+	cmp skip_h, 1
+	je pushouthexvalue_skip_h
+    mov byte ptr [di], "h"
+    inc di
+    inc out_buff_i
+    pushouthexvalue_skip_h:
+
     pop si
-    pop cx
+    pop ax
     ret
-endp PushRegister
+endp PushOutHexValue
 
 proc PushHexValue
     ;dx is word value to be pushed
     push ax
-    mov ax, out_buff_i
-    add ax, 5
-    cmp ax, 1024
-    jbe skip_pushhexvalue_print
-    call Print
-    skip_pushhexvalue_print:
+    xor ah, ah
+    push si
+	push di
+	mov di, instr_pointer
 
+    cmp force_hex, 1
+    je pushhexvalue_force
     cmp dh, 0
     je pushhexvalue_byte
+    pushhexvalue_force:
     mov al, dh
     and al, 0F0h
     shr al, 4
-    add al, 30h
-    mov byte ptr [di], al
-    inc di
+    lea si, hex_abc
+    add si, ax
+    movsb
     
     mov al, dh
     and al, 0Fh
-    add al, 30h
-    mov byte ptr [di], al
-    inc di
+    lea si, hex_abc
+    add si, ax
+    movsb
 
-    add out_buff_i, 2
+    add instr_length, 2
 
     pushhexvalue_byte:
     mov al, dl
     and al, 0F0h
     shr al, 4
-    add al, 30h
-    mov byte ptr [di], al
-    inc di
+    lea si, hex_abc
+    add si, ax
+    movsb
 
     mov al, dl
     and al, 0Fh
-    add al, 30h
-    mov byte ptr [di], al
-    inc di
-    
+    lea si, hex_abc
+    add si, ax
+    movsb
+
+    add instr_length, 2
+
+    cmp force_hex, 1
+    je pushhexvalue_skip_h
+	cmp skip_h, 1
+	je pushhexvalue_skip_h
     mov byte ptr [di], "h"
     inc di
+    inc instr_length
+    pushhexvalue_skip_h:
 
-    add out_buff_i, 3
-
+	mov instr_pointer, di
+	pop di
+    pop si
     pop ax
     ret
 endp PushHexValue
 
-;Right now to STD until $, will improve to output buffer with checks and everything
+proc PushNewline
+    mov cx, 2
+    call CheckOutBuff
+
+    mov byte ptr [di], 13
+    inc di
+    mov byte ptr [di], 10
+    inc di
+
+    add out_buff_i, 2
+    ret
+endp PushNewline
+
+;Print text until $ and then add a newline
 proc PrintText
     push ax
 
@@ -382,25 +648,40 @@ proc PrintText
     ret
 endp PrintText
 
-proc read_b_offset_val
-    push dx
-    inc si
-    mov dl, [si]
-    mov b_offset_val, dl
-    pop dx
-    ret
-endp
+proc PushOffset
+    mov bx, 5
+    call PushSpecialSymbol
+    call read_bytes
+    call PushHexValue
 
-proc read_w_offset_val
-    push dx
-    inc si
-    mov dl, [si]
-    inc si
-    mov dh, [si]
-    mov w_offset_val, dx
-    pop dx
     ret
-endp
+endp PushOffset
+
+proc read_bytes
+    xor dh, dh
+    call IncSi
+    mov dl, [si]
+    cmp mod_val, 01b
+    je read_b_offset
+    call IncSi
+    mov dh, [si]
+    read_b_offset:
+
+    ret
+endp read_bytes
+
+proc read_w_bytes
+    xor dh, dh
+    call IncSi
+    mov dl, [si]
+    cmp w_val, 0
+    je read_w_b_offset
+    call IncSi
+    mov dh, [si]
+    read_w_b_offset:
+
+    ret
+endp read_w_bytes
 
 ;Parse 111111dw mod reg r/m [b/w offset]
 proc parse_dwmodregrm
@@ -416,7 +697,7 @@ proc parse_dwmodregrm
     mov d_val, al
     
     ;Next byte!
-    inc si
+    call IncSi
     mov dl, byte ptr [si]
 
     ;mod_val
@@ -436,158 +717,408 @@ proc parse_dwmodregrm
     and al, 111b
     mov rm_val, al
 
-    cmp mod_val, 01b
-    jne dwmodregrm_mod_cont
-    call read_b_offset_val
-    ret
-    dwmodregrm_mod_cont:
-    cmp mod_val, 10b
-    jne no_offset
-    call read_w_offset_val
-    no_offset:
     ret
 endp parse_dwmodregrm
 
+proc parse_reg
+    push si
+    xor bh, bh
+
+    lea si, registers
+    mov bl, reg_val
+    cmp w_val, 0
+    je parse_reg_skip_add
+    add bx, 8
+    parse_reg_skip_add:
+    add bx, bx
+    add si, bx
+    mov cx, 2
+    call PushToBuffer
+
+    pop si
+    ret
+endp parse_reg
+
+proc parse_sreg
+    push si
+    xor bh, bh
+
+    lea si, segments
+    mov bl, sreg_val
+    add bx, bx
+    add si, bx
+    mov cx, 2
+    call PushToBuffer
+
+    pop si
+    ret
+endp parse_sreg
+
 proc parse_rm
-    push bx
-    push dx
-    xor bx, bx
-
-    cmp rm_val, 100b
-    jb parse_rm_two_regs
-    ;parse_rm_one_reg:
     cmp mod_val, 11b
-    jb rm_or_mem
-    mov bl, rm_val
-    call PushRegister
-    pop dx
-    pop bx
+    jne parse_rm_skip_mod11
+    mov al, rm_val
+    mov reg_val, al
+    call parse_reg
     ret
-    ;or stands for one register
-    rm_or_mem:
-    cmp mod_val, 0
-    ja rm_or_offset
-    ;rm_or_no_offset: NOT DONE
-    pop dx
-    pop bx
-    ret
-    rm_or_offset:
-
-    ;This should be a procedure
-    push ax
-    mov ax, out_buff_i
-    add ax, 9
-    cmp ax, 1024
-    jbe skip_rm_or_offset_print
-    call Print
-    skip_rm_or_offset_print:
-    cmp w_val, 1
-    je push_is_word
-    push cx
-    push si
-    mov cx, 9
-    lea si, is_byte
-    rep movsb
-    pop si
-    pop cx
-    jmp end_push
-    push_is_word:
-    push cx
-    push si
-    mov cx, 9
-    lea si, is_word
-    rep movsb
-    pop si
-    pop cx
-    end_push:
-    add out_buff_i, 9
+    ;mod < 11b
+    parse_rm_skip_mod11:
+    ;CheckSegment
+    cmp is_prefix, 4
+    je parse_rm_no_prefix
+    mov al, is_prefix
+    mov sreg_val, al
+    call parse_sreg
+    mov bx, 4
+    call PushSpecialSymbol
+    parse_rm_no_prefix:
 
     mov bx, 2
     call PushSpecialSymbol
-    mov bl, rm_val
-    sub bx, 100b ;Convert to 0XXb value
-    add bx, 10h
-    call PushRegister
-    mov bx, 5
-    call PushSpecialSymbol
-    cmp mod_val, 10b
-    je rm_or_woffset
-    ;rm_or_boffset:
-    xor dh, dh
-    mov dl, b_offset_val
+    cmp rm_val, 100b
+    jb parse_rm_0
+    cmp rm_val, 110b
+    jne parse_rm_skip_direct
+    cmp mod_val, 00b
+    jne parse_rm_skip_direct
+    ;parse_rm_direct:
+    call read_bytes
     call PushHexValue
     mov bx, 3
     call PushSpecialSymbol
-    pop dx
-    pop bx
     ret
-    rm_or_woffset:
-    mov dx, w_offset_val
-    call PushHexValue
-    pop dx
-    pop bx
+    parse_rm_skip_direct:
+    ;parse_rm_4:
+    push si
+    xor bh, bh
+    mov bl, rm_val
+    sub bl, 4
+    add bl, bl
+    mov cx, 2
+    lea si, rm_4_registers+bx
+    call PushToBuffer
+    pop si
+    
+    cmp mod_val, 00b
+    je parse_rm_4_no_offset
+    ;parse_rm_4_offset:
+    call PushOffset
+    parse_rm_4_no_offset:
+    mov bx, 3
+    call PushSpecialSymbol
     ret
-    parse_rm_two_regs:
 
-    pop dx
-    pop bx
+    parse_rm_0:
+    push si
+    xor bh, bh
+    mov bl, rm_val
+    mov cx, 5
+    mov al, bl
+    mul cl
+    mov bl, al
+    lea si, rm_0_registers+bx
+    call PushToBuffer
+    pop si
+
+    cmp mod_val, 00b
+    je parse_rm_0_no_offset
+    ;parse_rm_0_offset:
+    call PushOffset
+    parse_rm_0_no_offset:
+    mov bx, 3
+    call PushSpecialSymbol
+    
     ret
 endp parse_rm
 
+proc PushIp
+    push dx
+    mov force_hex, 1
+    mov dx, ip_val
+    call PushOutHexValue
+    pop dx
+    mov force_hex, 0
+    
+    mov cx, 2
+    call CheckOutBuff
+    mov byte ptr [di], ":"
+    inc di
+    mov byte ptr [di], " "
+    inc di
+    add out_buff_i, 2
+
+    ret
+endp PushIp
+
 proc parse_mov
-    push bx
-    push cx
     push si
+
     mov cx, 3
     lea si, com_3_main
     call PushToBuffer
     mov bx, 0
     call PushSpecialSymbol
+
     pop si
-    pop cx
-    pop bx
     ret
 endp parse_mov
 
 proc parse_mov_1
-    push bx
     xor bx, bx
 
-    call parse_dwmodregrm
     call parse_mov
+    call parse_dwmodregrm
     cmp d_val, 1
     je parse_mov_1_d1
     ;parse_mov_1_d0:
-
-    jmp end_parse_mov_1_d
-    parse_mov_1_d1:
-    mov bl, reg_val
-    call PushRegister
+    call parse_rm
     mov bx, 1
     call PushSpecialSymbol
     mov bx, 0
     call PushSpecialSymbol
-    ;Format becomes mov_XX,_ (_ is space)
+    call parse_reg
+    jmp parse_mov_1_end
+    parse_mov_1_d1:
+    call parse_reg
+    mov bx, 1
+    call PushSpecialSymbol
+    mov bx, 0
+    call PushSpecialSymbol
     call parse_rm
-    pop bx
-    ret
-    end_parse_mov_1_d:
-
-    pop bx
+    parse_mov_1_end:
+    
     ret
 endp parse_mov_1
 
 proc parse_mov_2
+    call parse_mov
     call parse_dwmodregrm
+    call parse_rm
+    mov bx, 1
+    call PushSpecialSymbol
+    mov bx, 0
+    call PushSpecialSymbol
+    call read_w_bytes
+    call PushHexValue
     ret
 endp parse_mov_2
 
 proc parse_mov_3
+    mov al, dl
+    and al, 111b
+    mov reg_val, al
+
+    mov al, dl
+    and al, 1000b
+    shr al, 3
+    mov w_val, al
+
+    call parse_mov
+    call parse_reg
+    mov bx, 1
+    call PushSpecialSymbol
+    mov bx, 0
+    call PushSpecialSymbol
+    call read_w_bytes
+    call PushHexValue
     ret
 endp parse_mov_3
 
 proc parse_mov_45
+    mov al, dl
+    and al, 1
+    mov w_val, al
+
+    mov al, dl
+    and al, 10b
+    shr al, 1
+    mov d_val, al
+
+    mov mod_val, 0
+    mov reg_val, 0
+    mov rm_val, 110b
+
+    cmp is_prefix, 4
+    jne parse_mov_45_already_segment
+    dec is_prefix
+    parse_mov_45_already_segment:
+
+    call parse_mov
+    cmp d_val, 1
+    je parse_mov_45_d1
+    ;parse_mov_45_d0:
+    call parse_reg
+    mov bx, 1
+    call PushSpecialSymbol
+    mov bx, 0
+    call PushSpecialSymbol
+    call parse_rm
+    ret
+    parse_mov_45_d1:
+    call parse_rm
+    mov bx, 1
+    call PushSpecialSymbol
+    mov bx, 0
+    call PushSpecialSymbol
+    call parse_reg
     ret
 endp parse_mov_45
+
+proc parse_mov_6
+    push dx
+    call parse_mov
+    call parse_dwmodregrm
+    pop dx
+
+    mov al, dl
+    and al, 10b
+    shr al, 1
+    mov d_val, al
+
+    mov w_val, 1
+
+    mov al, reg_val
+    mov sreg_val, al
+
+    cmp d_val, 0
+    jne parse_mov_6_d1
+    ;parse_mov_6_d0:
+    call parse_rm
+    mov bx, 1
+    call PushSpecialSymbol
+    mov bx, 0
+    call PushSpecialSymbol
+    call parse_sreg
+    ret
+    parse_mov_6_d1:
+    call parse_sreg
+    mov bx, 1
+    call PushSpecialSymbol
+    mov bx, 0
+    call PushSpecialSymbol
+    call parse_rm
+    ret
+endp parse_mov_6
+
+proc parse_out
+    push si
+    mov cx, 3
+    lea si, com_3_main+6
+    call PushToBuffer
+    pop si
+    mov bx, 0
+    call PushSpecialSymbol
+    ret
+endp parse_out
+
+proc parse_out_1
+    push dx
+    mov w_val, 0
+    call read_w_bytes
+    mov port_val, dl
+    pop dx
+
+    mov al, dl
+    and al, 1
+    mov w_val, al
+    mov reg_val, 000
+    
+    call parse_out
+    push dx
+    xor dh, dh
+    mov dl, port_val
+    call PushHexValue
+    pop dx
+    mov bx, 1
+    call PushSpecialSymbol
+    mov bx, 0
+    call PushSpecialSymbol
+    call parse_reg
+
+    ret
+endp parse_out_1
+
+proc parse_out_2
+    push dx
+    call parse_out
+    mov w_val, 1
+    mov reg_val, 010b
+    call parse_reg
+    
+    pop dx
+    mov al, dl
+    and al, 1
+    mov w_val, al
+    
+    mov bx, 1
+    call PushSpecialSymbol
+    mov bx, 0
+    call PushSpecialSymbol
+    
+    mov reg_val, 0
+    call parse_reg
+    
+    ret
+endp parse_out_2
+
+proc parse_not
+    call parse_dwmodregrm
+    
+    push si
+    mov cx, 3
+    lea si, com_3_lgic
+    call PushToBuffer
+    pop si
+    mov bx, 0
+    call PushSpecialSymbol
+    
+    call parse_rm
+    
+    ret
+endp parse_not
+
+proc parse_rcr
+    call parse_dwmodregrm
+    
+    push si
+    mov cx, 3
+    lea si, com_3_lgic+21
+    call PushToBuffer
+    pop si
+    mov bx, 0
+    call PushSpecialSymbol
+    
+    call parse_rm
+    mov bx, 1
+    call PushSpecialSymbol
+    mov bx, 0
+    call PushSpecialSymbol
+    cmp d_val, 1
+    je parse_rcr_v1
+    ;parse_rcr_v0:
+    push di
+    mov di, instr_pointer
+    mov byte ptr [di], "1"
+    inc di
+    inc instr_length
+    mov instr_pointer, di
+    pop di
+    ret
+    parse_rcr_v1:
+    mov w_val, 0
+	mov reg_val, 001b
+    call parse_reg
+    
+    ret
+endp parse_rcr
+
+proc parse_xlat
+    push si
+    mov cx, 4
+    lea si, com_4_main+8
+    call PushToBuffer
+    pop si
+    ret
+endp parse_xlat
 
 end start
