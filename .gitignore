@@ -1,5 +1,7 @@
-*
-!
-!.gitignore
-!disasm.asm
-!README.md
+*.bat
+*.exe
+*.map
+*.obj
+*.png
+*.txt
+tdconfig.td
