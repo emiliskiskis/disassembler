@@ -1,4 +1,7 @@
-*
-!disasm.asm
-!README.md
-!Samples
+*.bat
+*.exe
+*.map
+*.obj
+*.png
+*.txt
+tdconfig.td
