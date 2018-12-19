@@ -43,7 +43,7 @@
     ;Help text
     help_msg db "Usage: disasm [input file] [output file]", 0Dh, 0Ah, 9, "/?: show this help text", 0Dh, 0Ah, 9, "input file: source executable to be disassembled", 0Dh, 0Ah, 9, "output file: .asm file with disassembled code", 0Dh, 0Ah, 24h
     ;Instruction expressions
-    special_symbols db " ,[]:+"
+    special_symbols db " ,[]:+?"
     hex_abc db "0123456789ABCDEF"
     registers db "alcldlblahchdhbhaxcxdxbxspbpsidi"
     ;Explanation on registers (each is two bytes):
@@ -223,9 +223,8 @@ main_logic:
     jmp main_loop
     exit_main_loop:
     mov cx, 3
-    call CheckOutBuff
     lea si, end_msg
-    rep movsb
+    call PushToOutBuff
     ;Flush buffers after exit
     call Print
 
@@ -367,7 +366,9 @@ proc CheckInstruction
     call parse_xlat
     ret
     skip_xlat:
-
+    ;No recognized instruction
+    mov bx, 6
+    call PushSpecialSymbol
     ret
 endp CheckInstruction
 
