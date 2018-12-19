@@ -19,6 +19,7 @@
     reg_val db 0
     mod_val db 0
     rm_val db 0
+    port_val db 0
     sreg_val db 0
     s_val db 0
     imm_val dw 0
@@ -300,6 +301,14 @@ proc CheckInstruction
     call parse_mov_6
     ret
     skip_mov_6:
+    ;OUT instruction
+    mov al, dl
+    xor al, 11100110b
+    cmp al, 2
+    jae skip_out_1
+    call parse_out_1
+    ret
+    skip_out_1:
 
     ret
 endp CheckInstruction
@@ -808,5 +817,46 @@ proc parse_mov_6
     call PushNewline
     ret
 endp parse_mov_6
+
+proc parse_out
+    push si
+    mov cx, 3
+    lea si, com_3_main+6
+    call PushToBuffer
+    pop si
+    mov bx, 0
+    call PushSpecialSymbol
+    ret
+endp parse_out
+
+proc parse_out_1
+    push dx
+    mov w_val, 0
+    call read_w_bytes
+    mov port_val, dl
+    pop dx
+
+    mov al, dl
+    and al, 1
+    mov w_val, al
+    
+    call parse_out
+    push dx
+    xor dh, dh
+    mov dl, port_val
+    call PushHexValue
+    pop dx
+
+    mov bx, 1
+    call PushSpecialSymbol
+    mov bx, 0
+    call PushSpecialSymbol
+
+    mov reg_val, 000
+    call parse_reg
+    call PushNewline
+
+    ret
+endp parse_out_1
 
 end start
